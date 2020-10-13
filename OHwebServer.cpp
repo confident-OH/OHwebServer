@@ -1,4 +1,5 @@
 ﻿#include <WS2tcpip.h>
+#include <string>
 #include <iostream>
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,17 +7,27 @@
 #include <string.h>
 #include <thread>
 #pragma comment(lib, "ws2_32.lib")
+using namespace std;
 
 int thread_sock();
 void Menu(int opt);
+int cuss = 1;
 int con_status = 0;
 int web_status = 0;
+char head_buf[] = "HTTP/1.1 200 OK\r\nAccept-Ranges: bytes\r\n\
+					 Content-Length: 1024\r\n\
+					 Content-Type: text/html;charset=UTF-8\r\n\
+					 Connection: close\r\n\r\n";
+string file_name_head = string("E:\\network_lab\\LAB1\\HTML\\");
+string http_head1 = string("GET /");
+string http_head2 = string("HTTP/1.1");
 
 int main(int argc, char* argv[])
 {
     int opt = 0;
     char key_opt[100];
     int exit_lable = 0;
+    
     while (1) {
         Menu(opt);
         fgets(key_opt, 100, stdin);
@@ -42,11 +53,17 @@ int main(int argc, char* argv[])
                 }
                 else {
                     web_status = 1;
+                    con_status = 1;
+                    thread_sock();
+                    std::cout << "test\n";
+                    getchar();
+                    //std::thread t1(thread_sock);
+                    //t1.join();
 
                 }
                 break;
             }
-            case 1: //
+            case 1: // 退出服务
             {
                 if (web_status == 0) {
                     printf("---服务未开启，请不要关闭未知线程,按回车继续---\n");
@@ -54,6 +71,7 @@ int main(int argc, char* argv[])
                 }
                 else {
                     web_status = 0;
+                    con_status = 0;
 
                 }
                 break;
@@ -128,63 +146,188 @@ void Menu(int opt) {
 
 int thread_sock()
 {
-    //初始化socket
-    WORD sockVersion = MAKEWORD(2, 2);
-    WSAData wasData;
-    if (0 != WSAStartup(sockVersion, &wasData))
-    {
-        web_status = 0;
-        printf("socket初始化失败！按回车键继续\n");
-        getchar();
-        return 1;
+    WSADATA wsaData;
+    fd_set rfds;				//用于检查socket是否有数据到来的的文件描述符，用于socket非阻塞模式下等待网络事件通知（有数据到来）
+    fd_set wfds;				//用于检查socket是否可以发送的文件描述符，用于socket非阻塞模式下等待网络事件通知（可以发送数据）
+    bool first_connetion = true;
+
+    int nRc = WSAStartup(0x0202, &wsaData);
+
+    if (nRc) {
+        printf("Winsock  startup failed with error!\n");
     }
-    //创建套接字
-    SOCKET slisten = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    //如果为空
-    if (slisten == INVALID_SOCKET)
-    {
-        web_status = 0;
-        printf("套接字创建失败, 按回车键继续\n");
-        getchar();
-        return 2;
+
+    if (wsaData.wVersion != 0x0202) {
+        printf("Winsock version is not correct!\n");
     }
-    //服务器绑定需要的ip和端口
-    sockaddr_in sin;             //addr地址
-    sin.sin_family = AF_INET;         //ipv4
-    sin.sin_port = htons(80);         //设置端口
-    sin.sin_addr.S_un.S_addr = INADDR_ANY; //任意地址都可以访问  
-    //绑定
-    if (bind(slisten, (LPSOCKADDR)&sin, sizeof(sin)) == SOCKET_ERROR)
-    {
-        web_status = 0;
-        printf("绑定地址失败, 按回车键继续\n");
-        getchar();
-        return 3;
+
+    printf("Winsock  startup Ok!\n");
+
+
+    SOCKET srvSocket;
+    sockaddr_in addr, clientAddr;
+    SOCKET sessionSocket;
+    int addrLen;
+    //create socket
+    srvSocket = socket(AF_INET, SOCK_STREAM, 0);
+    if (srvSocket != INVALID_SOCKET)
+        printf("Socket create Ok!\n");
+    //set port and ip
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(80);
+    addr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
+    //binding
+    int rtn = bind(srvSocket, (LPSOCKADDR)&addr, sizeof(addr));
+    if (rtn != SOCKET_ERROR)
+        printf("Socket bind Ok!\n");
+    //listen
+    rtn = listen(srvSocket, 5);
+    if (rtn != SOCKET_ERROR)
+        printf("Socket listen Ok!\n");
+
+    clientAddr.sin_family = AF_INET;
+    addrLen = sizeof(clientAddr);
+    char recvBuf[4096];
+
+    u_long blockMode = 1;//将srvSock设为非阻塞模式以监听客户连接请求
+
+    if ((rtn = ioctlsocket(srvSocket, FIONBIO, &blockMode) == SOCKET_ERROR)) { //FIONBIO：允许或禁止套接口s的非阻塞模式。
+        cout << "ioctlsocket() failed with error!\n";
+        return 0;
     }
-    //开始监听
-    if (listen(slisten, 5) == SOCKET_ERROR) //可以监听的数量
-    {
-        web_status = 0;
-        printf("监听失败,按回车键继续\n");
-        getchar();
-        return 4;
-    }
-    //接听后 通过Tcp传数据
-    SOCKET sClient;      //接收套接字
-    sockaddr_in remoteAddr; //对方地址
-    int nAddrlen = sizeof(remoteAddr);
-    char revData[1024];
-    while (1) //服务器一直服务
-    {
-        printf("等待连接...\n");
-        //存储通信的socket
-        sClient = accept(slisten, (SOCKADDR*)&remoteAddr, &nAddrlen);
-        if (sClient == INVALID_SOCKET)
-        {
-            printf("连接失败");
-            continue;
+    cout << "ioctlsocket() for server socket ok!	Waiting for client connection and data\n";
+
+    //清空read,write描述符，对rfds和wfds进行了初始化，必须用FD_ZERO先清空，下面才能FD_SET
+    FD_ZERO(&rfds);
+    FD_ZERO(&wfds);
+
+    //设置等待客户连接请求
+    FD_SET(srvSocket, &rfds);
+
+    while (1) {
+        char sendBuf[1000] = { '\0' };
+        char rvcbuffer[1000];
+        memset(rvcbuffer, 0, strlen(rvcbuffer));
+        //清空read,write描述符
+        FD_ZERO(&rfds);
+        FD_ZERO(&wfds);
+
+        //设置等待客户连接请求
+        FD_SET(srvSocket, &rfds);
+
+        if (!first_connetion) {
+            //设置等待会话SOKCET可接受数据或可发送数据
+            FD_SET(sessionSocket, &rfds);
+            FD_SET(sessionSocket, &wfds);
         }
-        //接下来需要同学们来处理请求的数据
+
+        //开始等待
+        int nTotal = select(0, &rfds, &wfds, NULL, NULL);
+
+        //如果srvSock收到连接请求，接受客户连接请求
+        if (FD_ISSET(srvSocket, &rfds)) {
+            nTotal--;
+            //产生会话SOCKET
+            sessionSocket = accept(srvSocket, (LPSOCKADDR)&clientAddr, &addrLen);
+            if (sessionSocket != INVALID_SOCKET)
+                printf("Socket listen one client request!\n");
+
+            //把会话SOCKET设为非阻塞模式
+            if ((rtn = ioctlsocket(sessionSocket, FIONBIO, &blockMode) == SOCKET_ERROR)) { //FIONBIO：允许或禁止套接口s的非阻塞模式。
+                cout << "ioctlsocket() failed with error!\n";
+                return 0;
+            }
+            cout << "ioctlsocket() for session socket ok!	Waiting for client connection and data\n";
+            recv(sessionSocket, rvcbuffer, sizeof(rvcbuffer), 0);
+
+            string recvstring = string((const char*)rvcbuffer);
+            
+            cout << recvstring << endl;
+            int file_start = recvstring.find(http_head1);
+            int file_end = recvstring.find(http_head2);
+            if (file_end != -1 && file_start != -1) {
+                string file_name_tail = recvstring.substr(file_start + 5, file_end - file_start - 6);
+                cout << file_name_tail << endl;
+                int res = send(sessionSocket, head_buf, strlen(head_buf), 0);
+                if (res == 0) { std::cout << "Failed write!\n"; }
+                FILE* infile, * tail;
+                infile = fopen((file_name_head + file_name_tail).c_str(), "rb");
+                if (infile == NULL) {
+                    web_status = 0;
+                    printf("文件打开失败！按回车键继续\n");
+                    getchar();
+                    return -1;
+                }
+                tail = fopen((file_name_head + file_name_tail).c_str(), "rb");
+                char tail_buff[1000];
+                while (!feof(tail)) {
+                    fgets(tail_buff, 1000, tail);
+                }
+                if (tail == infile) {
+                    std::cout << "文件大小为0\n";
+                }
+                else {
+                    std::cout << "文件大小：" << (unsigned)tail - (unsigned)infile << endl;
+                }
+                while (true)
+                {
+                    //缓存清零
+                    int sendlen = 100;
+                    memset(sendBuf, 0, sizeof(sendBuf));
+                    if ((unsigned)tail - (unsigned)infile <= 100) {
+                        sendlen = (unsigned)tail - (unsigned)infile;
+                    }
+                    std::cout << "tail-infile:" << (unsigned)tail - (unsigned)infile << endl;
+                    fread(sendBuf, 1, sendlen, infile);
+                    if (SOCKET_ERROR == (send(sessionSocket, sendBuf, sendlen, 0)))
+                    {//发送失败
+                        printf("发送失败！\n");
+                        fclose(infile);
+                        fclose(tail);
+                        break;
+                    }
+                    std::cout << "发送了" << sendlen << "字节\n";
+                    if (feof(infile)) {
+                        printf("发送成功！\n");
+                        fclose(infile);
+                        fclose(tail);
+                        break;
+                    }
+
+                }
+            }
+            else {
+
+            }
+            FD_SET(sessionSocket, &rfds);
+            FD_SET(sessionSocket, &wfds);
+            first_connetion = false;
+
+        }
+           
+        //检查会话SOCKET是否有数据到来
+        if (nTotal > 0) {
+            //如果会话SOCKET有数据到来，则接受客户的数据
+            if (FD_ISSET(sessionSocket, &rfds)) {
+                //receiving data from client
+                memset(recvBuf, '\0', 4096);
+                rtn = recv(sessionSocket, recvBuf, 256, 0);
+                if (rtn > 0) {
+                    printf("Received %d bytes from client: %s\n", rtn, recvBuf);
+                }
+                else {
+                    printf("Client leaving ...\n");
+                    closesocket(sessionSocket);  //既然client离开了，就关闭sessionSocket
+                    first_connetion = 1;
+                }
+
+            }
+        }
+    }
+}
+
+/*
+//接下来需要同学们来处理请求的数据
         char sendBuf[100] = { '\0' };
         char rvcbuffer[1000];
         memset(rvcbuffer, 0, sizeof(rvcbuffer));
@@ -228,5 +371,4 @@ int thread_sock()
         fclose(infile);
         closesocket(sClient);
 
-    }
-}
+*/
