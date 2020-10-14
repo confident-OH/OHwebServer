@@ -1,24 +1,27 @@
 ﻿#include <WS2tcpip.h>
 #include <string>
 #include <iostream>
+#include <fstream>
 #include <stdio.h>
 #include <stdlib.h>
+#include <windows.h>
 #include <winsock2.h>
 #include <string.h>
 #include <thread>
 #pragma comment(lib, "ws2_32.lib")
+
 using namespace std;
 
+#define BUFERSIZE 2048
 int thread_sock();
 void Menu(int opt);
+int file_size(char* filename);
+int thread_client();
 int cuss = 1;
 int con_status = 0;
 int web_status = 0;
-char head_buf[] = "HTTP/1.1 200 OK\r\nAccept-Ranges: bytes\r\n\
-					 Content-Length: 1024\r\n\
-					 Content-Type: text/html;charset=UTF-8\r\n\
-					 Connection: close\r\n\r\n";
-string file_name_head = string("E:\\network_lab\\LAB1\\HTML\\");
+
+string file_name_head("E:\\network_lab\\LAB1\\HTML\\");
 string http_head1 = string("GET /");
 string http_head2 = string("HTTP/1.1");
 
@@ -27,11 +30,11 @@ int main(int argc, char* argv[])
     int opt = 0;
     char key_opt[100];
     int exit_lable = 0;
-    
+
     while (1) {
         Menu(opt);
         fgets(key_opt, 100, stdin);
-        if (key_opt[0] == 's'&&opt<2&&opt>=0) {
+        if (key_opt[0] == 's' && opt < 2 && opt >= 0) {
             opt++;
         }
         else if (key_opt[0] == 'w' && opt <= 2 && opt > 0) {
@@ -54,12 +57,9 @@ int main(int argc, char* argv[])
                 else {
                     web_status = 1;
                     con_status = 1;
-                    thread_sock();
-                    std::cout << "test\n";
-                    getchar();
-                    //std::thread t1(thread_sock);
-                    //t1.join();
-
+                    //thread_sock();
+                    std::thread t1(thread_sock);
+                    t1.detach();
                 }
                 break;
             }
@@ -71,8 +71,12 @@ int main(int argc, char* argv[])
                 }
                 else {
                     web_status = 0;
-                    con_status = 0;
-
+                    cout << "退出服务ing\n";
+                    int quit_lable = thread_client();
+                    if (quit_lable == 0) {
+                        cout << "退出成功\n";
+                    }
+                    
                 }
                 break;
             }
@@ -90,6 +94,337 @@ int main(int argc, char* argv[])
     //防止控制台一闪而过
     printf("程序已退出，按回车键关闭窗口\n");
     getchar();
+    return 0;
+} 
+
+int thread_sock()
+{
+    unsigned long ul = 1;
+    int file_names, file_namee;
+    string headbuf = string("HTTP/1.1 200 OK\r\n");
+
+    //初始化socket
+    WORD sockVersion = MAKEWORD(2, 2);
+    WSAData wasData;
+    if (0 != WSAStartup(sockVersion, &wasData))
+    {
+        web_status = 0;
+        printf("socket初始化失败！按回车键继续\n");
+        return 1;
+    }
+    //创建套接字
+    SOCKET slisten = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    //ioctlsocket(slisten, FIONBIO, (unsigned long*)&ul);
+    //如果为空
+    if (slisten == INVALID_SOCKET)
+    {
+        web_status = 0;
+        printf("套接字创建失败, 按回车键继续\n");
+        return 2;
+    }
+    //服务器绑定需要的ip和端口
+    sockaddr_in sin;                       //addr地址
+    sin.sin_family = AF_INET;              //ipv4
+    sin.sin_port = htons(80);              //设置端口
+    sin.sin_addr.S_un.S_addr = INADDR_ANY; //任意地址都可以访问  
+    //绑定
+    if (bind(slisten, (LPSOCKADDR)&sin, sizeof(sin)) == SOCKET_ERROR)
+    {
+        web_status = 0;
+        printf("绑定地址失败, 按回车键继续\n");
+        return 3;
+    }
+    //开始监听
+    if (listen(slisten, 5) == SOCKET_ERROR) //可以监听的数量
+    {
+        web_status = 0;
+        printf("监听失败,按回车键继续\n");
+        return 4;
+    }
+    
+    //接听后 通过Tcp传数据
+    SOCKET sClient;      //接收套接字
+    sockaddr_in remoteAddr; //对方地址
+    int nAddrlen = sizeof(remoteAddr);
+    char revData[1024];
+    while (1) //服务器一直服务
+    {
+
+        if (web_status == 0) {
+            int quit_sever;
+            web_status = 0;
+            
+            closesocket(slisten);
+            closesocket(sClient);
+            if ((quit_sever = WSACleanup()) == SOCKET_ERROR) {
+                web_status = 1;
+                cout << "退出服务失败" << endl;
+            }
+            else {
+                con_status = 0;
+                cout << "退出服务成功!\n";
+                return 150;
+            }
+            
+        }
+        printf("\n等待连接...\n");
+        //存储通信的socket
+        sClient = accept(slisten, (SOCKADDR*)&remoteAddr, &nAddrlen);
+        if (sClient == INVALID_SOCKET) {
+            //
+        }
+        else {
+            char sendBuf[BUFERSIZE] = { '\0' };
+            char rvcbuffer[BUFERSIZE];
+            char quit_lable[10] = "quit";
+            std::memset(rvcbuffer, 0, sizeof(rvcbuffer));
+            recv(sClient, rvcbuffer, sizeof(rvcbuffer), 0);
+            if (!strcmp(rvcbuffer, quit_lable)) {
+                continue;
+            }
+            string rcvstring(rvcbuffer);
+            file_names = rcvstring.find(http_head1);
+            file_namee = rcvstring.find(http_head2);
+            if (file_namee != -1 && file_names != -1) {
+                char index_wen[100] = "E:\\network_lab\\LAB1\\HTML\\index.html";
+                char four_zero[100] = "E:\\network_lab\\LAB1\\HTML\\404.html";
+                printf("收到一个连接:%s \r\n", inet_ntoa(remoteAddr.sin_addr));
+                cout << "/****************************************/" << endl;
+                cout << "Http信息：" << endl << rcvstring << endl;
+                cout << "/****************************************/" << endl;
+                string file_name_tail = rcvstring.substr(file_names + 5, file_namee - 2 - file_names - 4);
+                if (file_name_tail.empty()) {
+                    ifstream infile(index_wen, ios::in | ios::binary);
+                    if (!infile) {
+                        ifstream infile(four_zero, ios::in | ios::binary);
+                        headbuf = string("HTTP/1.1 404\r\n");
+                        headbuf += string("Content-Type: text/html\r\nContent-Length: ");
+                        int files = file_size(four_zero);
+                        headbuf += to_string(files) + string("\r\n\r\n");
+                        send(sClient, headbuf.c_str(), headbuf.length(), 0);
+                        cout << "/*****************404ERROR********************/" << endl;
+                        cout << headbuf << endl;
+                        cout << "/****************************************/" << endl;
+                        headbuf = string("HTTP/1.1 200 OK\r\n");
+                        memset(sendBuf, 0, BUFERSIZE);
+                        while (true) { //一直读到文件结束
+                            infile.read((char*)sendBuf, BUFERSIZE);
+                            int readedBytes = infile.gcount(); //看刚才读了多少字节
+                            if (SOCKET_ERROR == (send(sClient, sendBuf, readedBytes, 0)))
+                            {//发送失败
+                                printf("发送失败！\n");
+                                break;
+                            }
+                            //cout << sendBuf << endl;
+                            memset(sendBuf, 0, BUFERSIZE);
+                            if (infile.eof()) {
+                                infile.close();
+                                break;
+                            }
+                        }
+                    }
+                    else {
+                        headbuf += string("Content-Type: text/html\r\nContent-Length: ");
+                        int files = file_size(index_wen);
+                        headbuf += to_string(files) + string("\r\n\r\n");
+                        send(sClient, headbuf.c_str(), headbuf.length(), 0);
+                        cout << "/****************************************/" << endl;
+                        cout << headbuf << endl;
+
+                        headbuf = string("HTTP/1.1 200 OK\r\n");
+                        memset(sendBuf, 0, BUFERSIZE);
+                        while (true) { //一直读到文件结束
+                            infile.read((char*)sendBuf, BUFERSIZE);
+                            int readedBytes = infile.gcount(); //看刚才读了多少字节
+                            if (SOCKET_ERROR == (send(sClient, sendBuf, readedBytes, 0)))
+                            {//发送失败
+                                printf("发送失败！\n");
+                                break;
+                            }
+                            //cout << sendBuf << endl;
+                            memset(sendBuf, 0, BUFERSIZE);
+                            if (infile.eof()) {
+                                break;
+                            }
+                        }
+                        //send(sClient, headbuf4, strlen(headbuf4), 0);
+                        cout << "发送成功" << endl;
+                        cout << "/****************************************/" << endl;
+                        infile.close();
+                    }
+                }
+                else {
+                    ifstream infile((file_name_head + file_name_tail).c_str(), ios::in | ios::binary);
+                    if (!infile) {
+                        ifstream infile(four_zero, ios::in | ios::binary);
+                        headbuf = string("HTTP/1.1 404\r\n");
+                        headbuf += string("Content-Type: text/html\r\nContent-Length: ");
+                        int files = file_size(four_zero);
+                        headbuf += to_string(files) + string("\r\n\r\n");
+                        cout << "/*****************404ERROR********************/" << endl;
+                        cout << headbuf << endl;
+                        cout << "/****************************************/" << endl;
+                        send(sClient, headbuf.c_str(), headbuf.length(), 0);
+                        headbuf = string("HTTP/1.1 200 OK\r\n");
+                        memset(sendBuf, 0, BUFERSIZE);
+                        while (true) { //一直读到文件结束
+                            infile.read((char*)sendBuf, BUFERSIZE);
+                            int readedBytes = infile.gcount(); //看刚才读了多少字节
+                            if (SOCKET_ERROR == (send(sClient, sendBuf, readedBytes, 0)))
+                            {//发送失败
+                                printf("发送失败！\n");
+                                break;
+                            }
+                            //cout << sendBuf << endl;
+                            memset(sendBuf, 0, BUFERSIZE);
+                            if (infile.eof()) {
+                                infile.close();
+                                break;
+                            }
+                        }
+                    }
+                    else {
+                        headbuf = string("HTTP/1.1 200 OK\r\n");
+                        if (file_name_tail.find(".txt") != -1 || file_name_tail.find(".html") != -1) {
+                            headbuf += string("Content-Type: text/html\r\nContent-Length: ");
+                            int files = file_size((char*)(file_name_head + file_name_tail).c_str());
+                            headbuf += to_string(files) + string("\r\n\r\n");
+                            send(sClient, headbuf.c_str(), headbuf.length(), 0);
+                        }
+                        else if (file_name_tail.find(".gif") != -1) {
+                            headbuf += string("Content-Type: image/gif\r\nContent-Length: ");
+                            int files = file_size((char*)(file_name_head + file_name_tail).c_str());
+                            headbuf += to_string(files) + string("\r\n\r\n");
+                            send(sClient, headbuf.c_str(), headbuf.length(), 0);
+                        }
+                        else if (file_name_tail.find(".mp4") != -1) {
+                            headbuf += string("Content-Type: video/mpeg4\r\nContent-Length: ");
+                            int files = file_size((char*)(file_name_head + file_name_tail).c_str());
+                            headbuf += to_string(files) + string("\r\n\r\n");
+                            send(sClient, headbuf.c_str(), headbuf.length(), 0);
+                        }
+                        else if (file_name_tail.find(".jpg") != -1) {
+                            headbuf += string("Content-Type: image/jpeg\r\nContent-Length: ");
+                            int files = file_size((char*)(file_name_head + file_name_tail).c_str());
+                            headbuf += to_string(files) + string("\r\n\r\n");
+                            send(sClient, headbuf.c_str(), headbuf.length(), 0);
+                        }
+                        cout << "/****************************************/" << endl;
+                        cout << headbuf << endl;
+
+                        headbuf = string("HTTP/1.1 200 OK\r\n");
+                        memset(sendBuf, 0, BUFERSIZE);
+                        while (true) { //一直读到文件结束
+                            infile.read((char*)sendBuf, BUFERSIZE);
+                            int readedBytes = infile.gcount(); //看刚才读了多少字节
+                            if (SOCKET_ERROR == (send(sClient, sendBuf, readedBytes, 0)))
+                            {//发送失败
+                                printf("发送失败！\n");
+                                break;
+                            }
+                            //cout << sendBuf << endl;
+                            memset(sendBuf, 0, BUFERSIZE);
+                            if (infile.eof()) {
+                                break;
+                            }
+                        }
+                        cout << "发送成功" << endl;
+                        cout << "/****************************************/" << endl;
+                        infile.close();
+                    }
+                }
+            }
+        }
+        closesocket(sClient);
+    }
+}
+
+int thread_client() {
+    WSADATA wsaData;
+    string input;
+
+    int nRc = WSAStartup(0x0202, &wsaData);
+
+    if (nRc) {
+        printf("Winsock  startup failed with error!\n");
+    }
+
+    if (wsaData.wVersion != 0x0202) {
+        printf("Winsock version is not correct!\n");
+    }
+
+    printf("Winsock  startup Ok!\n");
+
+
+    SOCKET clientSocket;
+    sockaddr_in serverAddr, clientAddr;
+
+    int addrLen;
+
+    //create socket
+    clientSocket = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (clientSocket != INVALID_SOCKET)
+        printf("Socket create Ok!\n");
+
+    //set client port and ip
+    clientAddr.sin_family = AF_INET;
+    clientAddr.sin_port = htons(0);
+    clientAddr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
+    //binding
+    int rtn = bind(clientSocket, (LPSOCKADDR)&clientAddr, sizeof(clientAddr));
+    if (rtn != SOCKET_ERROR)
+        printf("Socket bind Ok!\n");
+
+    //set server's ip and port
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(80);          //设置端口号
+    serverAddr.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
+
+    rtn = connect(clientSocket, (LPSOCKADDR)&serverAddr, sizeof(serverAddr));
+    if (rtn == SOCKET_ERROR)
+        printf("Connect to server error!\n");
+
+    printf("Connect to server ok!");
+    int i;
+    for(i=0;i<50;i++){
+        char input[10] = "quit";
+        cout << "quiting\n";
+        //send data to server
+        rtn = send(clientSocket,input, 8, 0);
+        if (rtn == SOCKET_ERROR) {
+            printf("Send to server failed\n");
+            closesocket(clientSocket);
+            WSACleanup();
+            return -1;
+        }
+        Sleep(200);
+    }
+    closesocket(clientSocket);
+    WSACleanup();
+    return 0;
+}
+
+int file_size(char* filename) {
+    char a[10000];
+    int result = 0;
+    ifstream infile(filename, ios::in | ios::binary);
+    if (!infile) {
+        printf("文件打开失败！按回车键继续\n");   //后续改为返回错误值
+        return -1;
+    }
+    else {
+        while (true) { //一直读到文件结束
+            infile.read((char*)a, BUFERSIZE);
+            int readedBytes = infile.gcount(); //看刚才读了多少字节
+            result += readedBytes;
+            if (infile.eof()) {
+                infile.close();
+                break;
+            }
+        }
+    }
+    return result;
 }
 
 void Menu(int opt) {
@@ -141,234 +476,5 @@ void Menu(int opt) {
         printf("         功能三：退出程序\n\n");
     }
     printf("输入s/w可以上下移动图标，回车键进入对应功能\n");
-    printf("您的输入：");                                                                                                                                        
+    printf("您的输入：");
 }
-
-int thread_sock()
-{
-    WSADATA wsaData;
-    fd_set rfds;				//用于检查socket是否有数据到来的的文件描述符，用于socket非阻塞模式下等待网络事件通知（有数据到来）
-    fd_set wfds;				//用于检查socket是否可以发送的文件描述符，用于socket非阻塞模式下等待网络事件通知（可以发送数据）
-    bool first_connetion = true;
-
-    int nRc = WSAStartup(0x0202, &wsaData);
-
-    if (nRc) {
-        printf("Winsock  startup failed with error!\n");
-    }
-
-    if (wsaData.wVersion != 0x0202) {
-        printf("Winsock version is not correct!\n");
-    }
-
-    printf("Winsock  startup Ok!\n");
-
-
-    SOCKET srvSocket;
-    sockaddr_in addr, clientAddr;
-    SOCKET sessionSocket;
-    int addrLen;
-    //create socket
-    srvSocket = socket(AF_INET, SOCK_STREAM, 0);
-    if (srvSocket != INVALID_SOCKET)
-        printf("Socket create Ok!\n");
-    //set port and ip
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(80);
-    addr.sin_addr.S_un.S_addr = htonl(INADDR_ANY);
-    //binding
-    int rtn = bind(srvSocket, (LPSOCKADDR)&addr, sizeof(addr));
-    if (rtn != SOCKET_ERROR)
-        printf("Socket bind Ok!\n");
-    //listen
-    rtn = listen(srvSocket, 5);
-    if (rtn != SOCKET_ERROR)
-        printf("Socket listen Ok!\n");
-
-    clientAddr.sin_family = AF_INET;
-    addrLen = sizeof(clientAddr);
-    char recvBuf[4096];
-
-    u_long blockMode = 1;//将srvSock设为非阻塞模式以监听客户连接请求
-
-    if ((rtn = ioctlsocket(srvSocket, FIONBIO, &blockMode) == SOCKET_ERROR)) { //FIONBIO：允许或禁止套接口s的非阻塞模式。
-        cout << "ioctlsocket() failed with error!\n";
-        return 0;
-    }
-    cout << "ioctlsocket() for server socket ok!	Waiting for client connection and data\n";
-
-    //清空read,write描述符，对rfds和wfds进行了初始化，必须用FD_ZERO先清空，下面才能FD_SET
-    FD_ZERO(&rfds);
-    FD_ZERO(&wfds);
-
-    //设置等待客户连接请求
-    FD_SET(srvSocket, &rfds);
-
-    while (1) {
-        char sendBuf[1000] = { '\0' };
-        char rvcbuffer[1000];
-        memset(rvcbuffer, 0, strlen(rvcbuffer));
-        //清空read,write描述符
-        FD_ZERO(&rfds);
-        FD_ZERO(&wfds);
-
-        //设置等待客户连接请求
-        FD_SET(srvSocket, &rfds);
-
-        if (!first_connetion) {
-            //设置等待会话SOKCET可接受数据或可发送数据
-            FD_SET(sessionSocket, &rfds);
-            FD_SET(sessionSocket, &wfds);
-        }
-
-        //开始等待
-        int nTotal = select(0, &rfds, &wfds, NULL, NULL);
-
-        //如果srvSock收到连接请求，接受客户连接请求
-        if (FD_ISSET(srvSocket, &rfds)) {
-            nTotal--;
-            //产生会话SOCKET
-            sessionSocket = accept(srvSocket, (LPSOCKADDR)&clientAddr, &addrLen);
-            if (sessionSocket != INVALID_SOCKET)
-                printf("Socket listen one client request!\n");
-
-            //把会话SOCKET设为非阻塞模式
-            if ((rtn = ioctlsocket(sessionSocket, FIONBIO, &blockMode) == SOCKET_ERROR)) { //FIONBIO：允许或禁止套接口s的非阻塞模式。
-                cout << "ioctlsocket() failed with error!\n";
-                return 0;
-            }
-            cout << "ioctlsocket() for session socket ok!	Waiting for client connection and data\n";
-            recv(sessionSocket, rvcbuffer, sizeof(rvcbuffer), 0);
-
-            string recvstring = string((const char*)rvcbuffer);
-            
-            cout << recvstring << endl;
-            int file_start = recvstring.find(http_head1);
-            int file_end = recvstring.find(http_head2);
-            if (file_end != -1 && file_start != -1) {
-                string file_name_tail = recvstring.substr(file_start + 5, file_end - file_start - 6);
-                cout << file_name_tail << endl;
-                int res = send(sessionSocket, head_buf, strlen(head_buf), 0);
-                if (res == 0) { std::cout << "Failed write!\n"; }
-                FILE* infile, * tail;
-                infile = fopen((file_name_head + file_name_tail).c_str(), "rb");
-                if (infile == NULL) {
-                    web_status = 0;
-                    printf("文件打开失败！按回车键继续\n");
-                    getchar();
-                    return -1;
-                }
-                tail = fopen((file_name_head + file_name_tail).c_str(), "rb");
-                char tail_buff[1000];
-                while (!feof(tail)) {
-                    fgets(tail_buff, 1000, tail);
-                }
-                if (tail == infile) {
-                    std::cout << "文件大小为0\n";
-                }
-                else {
-                    std::cout << "文件大小：" << (unsigned)tail - (unsigned)infile << endl;
-                }
-                while (true)
-                {
-                    //缓存清零
-                    int sendlen = 100;
-                    memset(sendBuf, 0, sizeof(sendBuf));
-                    if ((unsigned)tail - (unsigned)infile <= 100) {
-                        sendlen = (unsigned)tail - (unsigned)infile;
-                    }
-                    std::cout << "tail-infile:" << (unsigned)tail - (unsigned)infile << endl;
-                    fread(sendBuf, 1, sendlen, infile);
-                    if (SOCKET_ERROR == (send(sessionSocket, sendBuf, sendlen, 0)))
-                    {//发送失败
-                        printf("发送失败！\n");
-                        fclose(infile);
-                        fclose(tail);
-                        break;
-                    }
-                    std::cout << "发送了" << sendlen << "字节\n";
-                    if (feof(infile)) {
-                        printf("发送成功！\n");
-                        fclose(infile);
-                        fclose(tail);
-                        break;
-                    }
-
-                }
-            }
-            else {
-
-            }
-            FD_SET(sessionSocket, &rfds);
-            FD_SET(sessionSocket, &wfds);
-            first_connetion = false;
-
-        }
-           
-        //检查会话SOCKET是否有数据到来
-        if (nTotal > 0) {
-            //如果会话SOCKET有数据到来，则接受客户的数据
-            if (FD_ISSET(sessionSocket, &rfds)) {
-                //receiving data from client
-                memset(recvBuf, '\0', 4096);
-                rtn = recv(sessionSocket, recvBuf, 256, 0);
-                if (rtn > 0) {
-                    printf("Received %d bytes from client: %s\n", rtn, recvBuf);
-                }
-                else {
-                    printf("Client leaving ...\n");
-                    closesocket(sessionSocket);  //既然client离开了，就关闭sessionSocket
-                    first_connetion = 1;
-                }
-
-            }
-        }
-    }
-}
-
-/*
-//接下来需要同学们来处理请求的数据
-        char sendBuf[100] = { '\0' };
-        char rvcbuffer[1000];
-        memset(rvcbuffer, 0, sizeof(rvcbuffer));
-        recv(sClient, rvcbuffer, sizeof(rvcbuffer), 0);
-        printf("收到一个连接:%s \r\n", inet_ntoa(remoteAddr.sin_addr));
-        printf("客户信息：\n%s\n", rvcbuffer);
-        FILE* infile;
-        infile = fopen("E:\\network_lab\\LAB1\\OHwebServer\\html\\index.html", "rb");
-        if (infile == NULL) {
-            web_status = 0;
-            printf("文件打开失败！按回车键继续\n");
-            getchar();
-            return -1;
-        }
-        else
-            while (true)
-            {
-                //缓存清零
-                memset(sendBuf, 0, sizeof(sendBuf));
-                fread(sendBuf, 1, 100, infile);
-                int sendlen;
-                sendlen = strlen(sendBuf);
-                if (sendlen < 100) {
-                    if (SOCKET_ERROR == (send(sClient, sendBuf, sendlen, 0)))
-                    {//发送失败
-                        printf("发送失败！\n");
-                        break;
-                    }
-                }
-                else if (SOCKET_ERROR == (send(sClient, sendBuf, sizeof(sendBuf), 0)))
-                {//发送失败
-                    printf("发送失败！\n");
-                    break;
-                }
-                if (feof(infile)) {
-                    printf("发送成功！\n");
-                    break;
-                }
-
-            }
-        fclose(infile);
-        closesocket(sClient);
-
-*/
