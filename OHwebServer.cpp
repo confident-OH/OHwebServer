@@ -190,7 +190,7 @@ int thread_sock()
                 char four_zero[100] = "E:\\network_lab\\LAB1\\HTML\\404.html";
                 printf("收到一个连接:%s \r\n", inet_ntoa(remoteAddr.sin_addr));
                 cout << "/****************************************/" << endl;
-                cout << "Http信息：" << endl << rcvstring << endl;
+                cout << "Http请求报文：" << endl << rcvstring << endl;
                 cout << "/****************************************/" << endl;
                 string file_name_tail = rcvstring.substr(file_names + 5, file_namee - 2 - file_names - 4);
                 if (file_name_tail.empty()) {
@@ -228,7 +228,7 @@ int thread_sock()
                         int files = file_size(index_wen);
                         headbuf += to_string(files) + string("\r\n\r\n");
                         send(sClient, headbuf.c_str(), headbuf.length(), 0);
-                        cout << "/****************************************/" << endl;
+                        cout << "/***************** HTTP相应报文 ********************/" << endl;
                         cout << headbuf << endl;
 
                         headbuf = string("HTTP/1.1 200 OK\r\n");
@@ -309,7 +309,7 @@ int thread_sock()
                             headbuf += to_string(files) + string("\r\n\r\n");
                             send(sClient, headbuf.c_str(), headbuf.length(), 0);
                         }
-                        cout << "/****************************************/" << endl;
+                        cout << "/***************** HTTP相应报文 ********************/" << endl;
                         cout << headbuf << endl;
 
                         headbuf = string("HTTP/1.1 200 OK\r\n");
