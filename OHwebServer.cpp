@@ -202,7 +202,7 @@ int thread_sock()
                         int files = file_size(four_zero);
                         headbuf += to_string(files) + string("\r\n\r\n");
                         send(sClient, headbuf.c_str(), headbuf.length(), 0);
-                        cout << "/*****************404ERROR********************/" << endl;
+                        cout << "/***************** 404ERROR未找到相应文件 ********************/" << endl;
                         cout << headbuf << endl;
                         cout << "/****************************************/" << endl;
                         headbuf = string("HTTP/1.1 200 OK\r\n");
@@ -261,7 +261,7 @@ int thread_sock()
                         headbuf += string("Content-Type: text/html\r\nContent-Length: ");
                         int files = file_size(four_zero);
                         headbuf += to_string(files) + string("\r\n\r\n");
-                        cout << "/*****************404ERROR********************/" << endl;
+                        cout << "/***************** 404ERROR未找到相应文件 ********************/" << endl;
                         cout << headbuf << endl;
                         cout << "/****************************************/" << endl;
                         send(sClient, headbuf.c_str(), headbuf.length(), 0);
