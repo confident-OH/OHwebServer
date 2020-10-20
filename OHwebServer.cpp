@@ -1,5 +1,6 @@
 ﻿#include <WS2tcpip.h>
 #include <string>
+#include <stdlib.h>
 #include <iostream>
 #include <fstream>
 #include <stdio.h>
@@ -8,32 +9,32 @@
 #include <winsock2.h>
 #include <string.h>
 #include <thread>
+#include "menu.h"
 #pragma comment(lib, "ws2_32.lib")
 
 using namespace std;
 
-#define BUFERSIZE 2048
+#define BUFERSIZE 2048 //设置Buffersize
 int thread_sock();
 void Menu(int opt);
 int file_size(char* filename);
 int thread_client();
-int cuss = 1;
-int con_status = 0;
-int web_status = 0;
 
-string file_name_head("E:\\network_lab\\LAB1\\HTML\\");
-string http_head1 = string("GET /");
-string http_head2 = string("HTTP/1.1");
+int web_status = 0;   //全局变量，当值为0关闭服务器，值为1开启服务器
+char ports[20] = "80";  //存储端口号，默认值为80（可通过配置文件更改       
+char webaddr[30] = "127.0.0.1"; //存储IP地址，默认值为localhost
+string file_name_head("E:\\network_lab\\LAB1\\HTML\\"); //html文件路径
+string http_head1 = string("GET /");    //定位http文件请求的文件名使用
+string http_head2 = string("HTTP/1.1"); //定位http文件请求的文件名使用
 
 int main(int argc, char* argv[])
 {
     int opt = 0;
-    char key_opt[100];
+    char key_opt[10];
     int exit_lable = 0;
-
-    while (1) {
-        Menu(opt);
-        fgets(key_opt, 100, stdin);
+    while (1) {        //建立有限状态机
+        Menu(opt, web_status);
+        fgets(key_opt, 10, stdin);
         if (key_opt[0] == 's' && opt < 2 && opt >= 0) {
             opt++;
         }
@@ -48,16 +49,15 @@ int main(int argc, char* argv[])
         }
         else if (key_opt[0] == '\n') {
             switch (opt) {
-            case 0: //生成线程启动服务
+            case 0: 
             {
-                if (web_status == 1) {
+                if (web_status == 1) {  
                     printf("---服务已开启，不要重复操作，按回车继续---\n");
                     getchar();
                 }
                 else {
-                    web_status = 1;
-                    con_status = 1;
-                    //thread_sock();
+                    web_status = 1; 
+                    //新开线程并发服务器
                     std::thread t1(thread_sock);
                     t1.detach();
                 }
@@ -72,6 +72,7 @@ int main(int argc, char* argv[])
                 else {
                     web_status = 0;
                     cout << "退出服务ing\n";
+                    //向服务器发送退出命令
                     int quit_lable = thread_client();
                     if (quit_lable == 0) {
                         cout << "退出成功\n";
@@ -80,8 +81,9 @@ int main(int argc, char* argv[])
                 }
                 break;
             }
-            case 2: //退出程序
+            case 2: 
             {
+                //退出程序
                 exit_lable = 1;
                 break;
             }
@@ -91,14 +93,42 @@ int main(int argc, char* argv[])
             break;
         }
     }
-    //防止控制台一闪而过
     printf("程序已退出，按回车键关闭窗口\n");
+    //防止控制台一闪而过
     getchar();
     return 0;
 } 
 
 int thread_sock()
 {
+    char folderconfig[50];
+    FILE* conf;
+    //打开配置文件
+    conf = fopen("E:\\network_lab\\LAB1\\OHwebServer\\Debug\\config.txt", "r");
+    if (conf == NULL) {
+        cout << "文件打开失败" << endl;
+        web_status = 0;
+        return 0;
+    }
+    else {
+        //从文件中读出并设置服务器的IP地址
+        fgets(webaddr, 20, conf);
+        int len = strlen(webaddr); 
+        webaddr[len - 1] = '\0';
+        cout << "网址IP: " << webaddr << endl;
+        //从配置文件中读出并设置服务器的端口
+        fgets(ports, 10, conf);
+        len = strlen(ports);
+        ports[len] = '\0';
+        cout << "端口号：" << ports << endl;
+        //从配置文件中读出并设置HTML的资源路径
+        fgets(folderconfig, 50, conf);
+        len = strlen(folderconfig);
+        folderconfig[len - 1] = '\0';
+        file_name_head = string(folderconfig);
+        cout << "文件地址：" << folderconfig << endl;
+    }
+    fclose(conf);
     unsigned long ul = 1;
     int file_names, file_namee;
     string headbuf = string("HTTP/1.1 200 OK\r\n");
@@ -112,30 +142,33 @@ int thread_sock()
         printf("socket初始化失败！按回车键继续\n");
         return 1;
     }
+
     //创建套接字
     SOCKET slisten = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    //ioctlsocket(slisten, FIONBIO, (unsigned long*)&ul);
-    //如果为空
+    //检测是否创建成功
     if (slisten == INVALID_SOCKET)
     {
         web_status = 0;
         printf("套接字创建失败, 按回车键继续\n");
         return 2;
     }
+
     //服务器绑定需要的ip和端口
-    sockaddr_in sin;                       //addr地址
-    sin.sin_family = AF_INET;              //ipv4
-    sin.sin_port = htons(80);              //设置端口
-    sin.sin_addr.S_un.S_addr = INADDR_ANY; //任意地址都可以访问  
-    //绑定
+    sockaddr_in sin;                                //addr地址
+    sin.sin_family = AF_INET;                       //ipv4
+    sin.sin_port = htons(atoi(ports));              //设置端口
+    sin.sin_addr.S_un.S_addr = inet_addr(webaddr);  //设置IP地址  
+    
+    //绑定socket
     if (bind(slisten, (LPSOCKADDR)&sin, sizeof(sin)) == SOCKET_ERROR)
     {
         web_status = 0;
         printf("绑定地址失败, 按回车键继续\n");
         return 3;
     }
-    //开始监听
-    if (listen(slisten, 5) == SOCKET_ERROR) //可以监听的数量
+
+    //开始监听,设置可以监听的数量
+    if (listen(slisten, 5) == SOCKET_ERROR)      
     {
         web_status = 0;
         printf("监听失败,按回车键继续\n");
@@ -143,17 +176,16 @@ int thread_sock()
     }
     
     //接听后 通过Tcp传数据
-    SOCKET sClient;      //接收套接字
-    sockaddr_in remoteAddr; //对方地址
+    SOCKET sClient;                 //创建接受http请求的套接字
+    sockaddr_in remoteAddr;         //存储客户IP地址
     int nAddrlen = sizeof(remoteAddr);
     char revData[1024];
-    while (1) //服务器一直服务
-    {
-
+    while (1) {
+        //开启服务器
         if (web_status == 0) {
+            //全局变量改变时退出服务器
             int quit_sever;
             web_status = 0;
-            
             closesocket(slisten);
             closesocket(sClient);
             if ((quit_sever = WSACleanup()) == SOCKET_ERROR) {
@@ -161,17 +193,16 @@ int thread_sock()
                 cout << "退出服务失败" << endl;
             }
             else {
-                con_status = 0;
                 cout << "退出服务成功!\n";
                 return 150;
             }
-            
         }
         printf("\n等待连接...\n");
         //存储通信的socket
         sClient = accept(slisten, (SOCKADDR*)&remoteAddr, &nAddrlen);
         if (sClient == INVALID_SOCKET) {
-            //
+            //如果accept出错，重新开始循环
+            continue;
         }
         else {
             char sendBuf[BUFERSIZE] = { '\0' };
@@ -247,7 +278,6 @@ int thread_sock()
                                 break;
                             }
                         }
-                        //send(sClient, headbuf4, strlen(headbuf4), 0);
                         cout << "发送成功" << endl;
                         cout << "/****************************************/" << endl;
                         infile.close();
@@ -270,13 +300,13 @@ int thread_sock()
                         while (true) { //一直读到文件结束
                             infile.read((char*)sendBuf, BUFERSIZE);
                             int readedBytes = infile.gcount(); //看刚才读了多少字节
-                            if (SOCKET_ERROR == (send(sClient, sendBuf, readedBytes, 0)))
-                            {//发送失败
+                            //检测是否发送失败
+                            if (SOCKET_ERROR == (send(sClient, sendBuf, readedBytes, 0))){
                                 printf("发送失败！\n");
                                 break;
                             }
-                            //cout << sendBuf << endl;
                             memset(sendBuf, 0, BUFERSIZE);
+                            //文件发送完毕
                             if (infile.eof()) {
                                 infile.close();
                                 break;
@@ -285,6 +315,7 @@ int thread_sock()
                     }
                     else {
                         headbuf = string("HTTP/1.1 200 OK\r\n");
+                        //判断文件类型设置http相应报头
                         if (file_name_tail.find(".txt") != -1 || file_name_tail.find(".html") != -1) {
                             headbuf += string("Content-Type: text/html\r\nContent-Length: ");
                             int files = file_size((char*)(file_name_head + file_name_tail).c_str());
@@ -298,7 +329,7 @@ int thread_sock()
                             send(sClient, headbuf.c_str(), headbuf.length(), 0);
                         }
                         else if (file_name_tail.find(".mp4") != -1) {
-                            headbuf += string("Content-Type: video/mpeg4\r\nContent-Length: ");
+                            headbuf += string("Content-Type: video/mp4\r\nContent-Length: ");
                             int files = file_size((char*)(file_name_head + file_name_tail).c_str());
                             headbuf += to_string(files) + string("\r\n\r\n");
                             send(sClient, headbuf.c_str(), headbuf.length(), 0);
@@ -341,32 +372,21 @@ int thread_sock()
 
 int thread_client() {
     WSADATA wsaData;
-    string input;
-
     int nRc = WSAStartup(0x0202, &wsaData);
-
     if (nRc) {
         printf("Winsock  startup failed with error!\n");
     }
-
     if (wsaData.wVersion != 0x0202) {
         printf("Winsock version is not correct!\n");
     }
-
     printf("Winsock  startup Ok!\n");
-
-
     SOCKET clientSocket;
     sockaddr_in serverAddr, clientAddr;
-
     int addrLen;
-
     //create socket
     clientSocket = socket(AF_INET, SOCK_STREAM, 0);
-
     if (clientSocket != INVALID_SOCKET)
         printf("Socket create Ok!\n");
-
     //set client port and ip
     clientAddr.sin_family = AF_INET;
     clientAddr.sin_port = htons(0);
@@ -378,14 +398,12 @@ int thread_client() {
 
     //set server's ip and port
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(80);          //设置端口号
-    serverAddr.sin_addr.S_un.S_addr = inet_addr("127.0.0.1");
-
+    serverAddr.sin_port = htons(atoi(ports));          //设置端口号
+    serverAddr.sin_addr.S_un.S_addr = inet_addr(webaddr);
     rtn = connect(clientSocket, (LPSOCKADDR)&serverAddr, sizeof(serverAddr));
     if (rtn == SOCKET_ERROR)
         printf("Connect to server error!\n");
-
-    printf("Connect to server ok!");
+    else printf("Connect to server ok!");
     int i;
     for(i=0;i<50;i++){
         char input[10] = "quit";
@@ -398,6 +416,7 @@ int thread_client() {
             WSACleanup();
             return -1;
         }
+        //每隔0.2s发送一次关闭请求
         Sleep(200);
     }
     closesocket(clientSocket);
@@ -410,7 +429,7 @@ int file_size(char* filename) {
     int result = 0;
     ifstream infile(filename, ios::in | ios::binary);
     if (!infile) {
-        printf("文件打开失败！按回车键继续\n");   //后续改为返回错误值
+        printf("文件打开失败！\n");           //后续改为返回错误值
         return -1;
     }
     else {
@@ -425,56 +444,4 @@ int file_size(char* filename) {
         }
     }
     return result;
-}
-
-void Menu(int opt) {
-    system("cls");
-    printf("/***********************************************************************************************************************************************/\n");
-    printf("                                                                                                                                      \n");
-    printf("       OOOOOOOOO    HHHHHHHHH     HHHHHHHHH  SSSSSSSSSSSSSSS\n");
-    printf("     OO:::::::::OO  H:::::::H     H:::::::HSS:::::::::::::::S\n");
-    printf("   OO:::::::::::::OOH:::::::H     H:::::::S:::::SSSSSS::::::S\n");
-    printf("  O:::::::OOO:::::::HH::::::H     H::::::HS:::::S     SSSSSSS\n");
-    printf("  O::::::O   O::::::O H:::::H     H:::::H S:::::S               eeeeeeeeeeee vvvvvvv           vvvvvvveeeeeeeeeeee   rrrrr   rrrrrrrrr   \n");
-    printf("  O:::::O     O:::::O H:::::H     H:::::H S:::::S             ee::::::::::::eev:::::v         v:::::ee::::::::::::ee r::::rrr:::::::::r\n");
-    printf("  O:::::O     O:::::O H::::::HHHHH::::::H  S::::SSSS         e::::::eeeee:::::ev:::::v       v:::::e::::::eeeee:::::er:::::::::::::::::r \n");
-    printf("  O:::::O     O:::::O H:::::::::::::::::H   SS::::::SSSSS   e::::::e     e:::::ev:::::v     v:::::e::::::e     e:::::rr::::::rrrrr::::::r\n");
-    printf("  O:::::O     O:::::O H:::::::::::::::::H     SSS::::::::SS e:::::::eeeee::::::e v:::::v   v:::::ve:::::::eeeee::::::er:::::r     r:::::r\n");
-    printf("  O:::::O     O:::::O H::::::HHHHH::::::H        SSSSSS::::Se:::::::::::::::::e   v:::::v v:::::v e:::::::::::::::::e r:::::r     rrrrrrr\n");
-    printf("  O:::::O     O:::::O H:::::H     H:::::H             S:::::e::::::eeeeeeeeeee     v:::::v:::::v  e::::::eeeeeeeeeee  r:::::r\n");
-    printf("  O::::::O   O::::::O H:::::H     H:::::H             S:::::e:::::::e               v:::::::::v   e:::::::e           r:::::r \n");
-    printf("  O:::::::OOO:::::::HH::::::H     H::::::HSSSSSSS     S:::::e::::::::e               v:::::::v    e::::::::e          r:::::r\n");
-    printf("   OO:::::::::::::OOH:::::::H     H:::::::S::::::SSSSSS:::::Se::::::::eeeeeeee        v:::::v      e::::::::eeeeeeee  r:::::r\n");
-    printf("     OO:::::::::OO  H:::::::H     H:::::::S:::::::::::::::SS  ee:::::::::::::e         v:::v        ee:::::::::::::e  r:::::r\n");
-    printf("       OOOOOOOOO    HHHHHHHHH     HHHHHHHHHSSSSSSSSSSSSSSS      eeeeeeeeeeeeee          vvv           eeeeeeeeeeeeee  rrrrrrr \n");
-    printf("\n");
-    printf("/***********************************************************************************************************************************************/\n\n\n\n");
-    printf("欢迎来到OHSever！\n\n");
-    if (web_status == 1) {
-        printf("Sever状态: 已打开\n\n\n");
-    }
-    else {
-        printf("Sever状态: 未打开\n\n\n");
-    }
-    printf("/***********************************************************************************************************************************************/\n");
-    if (opt == 0) {
-        printf("\033[1;31;44m         功能一：打开服务器\033[0m\n");
-    }
-    else {
-        printf("         功能一：打开服务器\n");
-    }
-    if (opt == 1) {
-        printf("\033[1;31;44m         功能二：关闭服务器\033[0m\n");
-    }
-    else {
-        printf("         功能二：关闭服务器\n");
-    }
-    if (opt == 2) {
-        printf("\033[1;31;44m         功能三：退出程序\033[0m\n\n");
-    }
-    else {
-        printf("         功能三：退出程序\n\n");
-    }
-    printf("输入s/w可以上下移动图标，回车键进入对应功能\n");
-    printf("您的输入：");
 }
